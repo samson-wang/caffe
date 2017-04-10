@@ -1,6 +1,7 @@
 #ifdef USE_CUDNN
 #include <vector>
 
+#include "caffe/util/math_functions.hpp"
 #include "caffe/layers/cudnn_orn_layer.hpp"
 
 namespace caffe {
@@ -20,6 +21,7 @@ void CuDNNOrientedConvolutionLayer<Dtype>::Forward_gpu(
   for (int i = 0; i < bottom.size(); ++i) {
     const Dtype* bottom_data = bottom[i]->gpu_data();
     Dtype* top_data = top[i]->mutable_gpu_data();
+    caffe_gpu_set(top[i]->count(), static_cast<Dtype>(0), top_data);
 
     for (int n = 0; n < this->group_; ++n) {
       rot_weights_gpu(this->rot_blobs_[0]->mutable_gpu_data(), this->blobs_[0]->gpu_data(),
@@ -34,7 +36,7 @@ void CuDNNOrientedConvolutionLayer<Dtype>::Forward_gpu(
               filter_desc_, rot + this->weight_offset_ * rot_index((g - n), this->group_),
               conv_descs_[i],
               fwd_algo_[i], workspace[g], workspace_fwd_sizes_[i],
-              g==0 ? cudnn::dataType<Dtype>::zero : cudnn::dataType<Dtype>::one,
+              cudnn::dataType<Dtype>::one,
               top_descs_[i], top_data + top_offset_ * n));
 
         // Bias.
@@ -113,7 +115,7 @@ void CuDNNOrientedConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>
               bwd_data_algo_[i], workspace[2*this->group_ + g],
               workspace_bwd_data_sizes_[i],
               cudnn::dataType<Dtype>::zero,
-              bottom_descs_[i], bottom_diff + bottom_offset_ * g));
+              bottom_descs_[i], bottom_diff + bottom_offset_ * (this->channels_ == 3 || this->channels_ == 1? 0 : g)));
       }
     }
 
@@ -126,7 +128,7 @@ void CuDNNOrientedConvolutionLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>
           CUDNN_CHECK(cudnnConvolutionBackwardFilter(
                 handle_[1*this->group_ + g],
                 cudnn::dataType<Dtype>::one,
-                bottom_descs_[i], bottom_data + bottom_offset_ * g,
+                bottom_descs_[i], bottom_data + bottom_offset_ * (this->channels_ == 3 || this->channels_ == 1? 0 : g),
                 top_descs_[i],    top_diff + top_offset_ * n,
                 conv_descs_[i],
                 bwd_filter_algo_[i], workspace[1*this->group_ + g],
