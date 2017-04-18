@@ -64,7 +64,7 @@ void CuDNNOrientedConvolutionLayer<Dtype>::LayerSetUp(
   const int kernel_w = kernel_shape_data[1];
   cudnn::createFilterDesc<Dtype>(&filter_desc_,
       this->num_output_ / this->group_,
-      (this->channels_==3 || this->channels_==1 ? this->channels_ : this->channels_ / this->group_),
+      this->channels_ / this->group_,
       kernel_h, kernel_w);
 
   // Create tensor descriptor(s) for data and corresponding convolution(s).
@@ -97,6 +97,7 @@ void CuDNNOrientedConvolutionLayer<Dtype>::Reshape(
       << "(e.g., height and width). "
       << "Use 'engine: CAFFE' for general ND convolution.";
   bottom_offset_ = this->bottom_dim_ / this->group_;
+//  LOG(INFO) << "bottom offset " << bottom_offset_ << " dim " << this->bottom_dim_;
   top_offset_ = this->top_dim_ / this->group_;
   const int height = bottom[0]->shape(this->channel_axis_ + 1);
   const int width = bottom[0]->shape(this->channel_axis_ + 2);
@@ -114,9 +115,10 @@ void CuDNNOrientedConvolutionLayer<Dtype>::Reshape(
   size_t workspace_limit_bytes = 8*1024*1024;
 
   for (int i = 0; i < bottom.size(); i++) {
+//    LOG(INFO) << "Update bottom descs " << (this->channels_==3 || this->channels_==1 ? this->channels_ : this->channels_ / this->group_) * height * width;
     cudnn::setTensor4dDesc<Dtype>(&bottom_descs_[i],
         this->num_,
-        (this->channels_==3 || this->channels_==1 ? this->channels_ : this->channels_ / this->group_),
+        this->channels_ / this->group_,
         height, width,
         this->channels_ * height * width,
         height * width, width, 1);

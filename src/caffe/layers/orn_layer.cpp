@@ -121,9 +121,9 @@ void OrientedConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bot
   num_output_ = this->layer_param_.convolution_param().num_output();
   CHECK_GT(num_output_, 0);
   group_ = this->layer_param_.convolution_param().group();
-  if (channels_ != 3 && channels_ != 1) {
+//  if (channels_ != 3 && channels_ != 1) {
     CHECK_EQ(channels_ % group_, 0);
-  }
+//  }
   CHECK_EQ(num_output_ % group_, 0)
       << "Number of output should be multiples of group.";
   if (reverse_dimensions()) {
@@ -141,7 +141,7 @@ void OrientedConvolutionLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bot
   vector<int> weight_shape(2);
   weight_shape[0] = conv_out_channels_;
   // Should be tricky for input
-  weight_shape[1] = conv_in_channels_ / (channels_ == 3 || channels_ == 1 ? 1 : group_);
+  weight_shape[1] = conv_in_channels_ / group_;
   for (int i = 0; i < num_spatial_axes_; ++i) {
     weight_shape.push_back(kernel_shape_data[i]);
   }
@@ -566,23 +566,65 @@ void OrientedConvolutionLayer<Dtype>::forward_gpu_gemm(const Dtype* input,
     }
     col_buff = col_buffer_.gpu_data();
   }
-  // Rotate the filter for group_ directions
+/*
   for (int n = 0; n < group_; ++n) {
     rot_weights_gpu(this->rot_blobs_[0]->mutable_gpu_data(), this->blobs_[0]->gpu_data(),
-        n, group_, false, this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3);
+        n, group_, false, this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3, true);
+    const Dtype* rot = this->rot_blobs_[0]->gpu_data();
+
+    for (int g = 0; g < group_; ++g) {
+      caffe_gpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, conv_out_channels_ / group_,
+          conv_out_spatial_dim_, kernel_dim_,
+          (Dtype)1., rot + weight_offset_ * g,
+          col_buff + col_offset_ * g,
+          (Dtype)(g ? 1 : 0), output + output_offset_ * n);
+
+    }
+
+  }
+*/
+  for (int n = 0; n < this->group_; ++n) {
+      rot_weights_gpu(this->rot_blobs_[0]->mutable_gpu_data(), this->blobs_[0]->gpu_data(),
+          n, this->group_, n ? true : false, this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3, true);
+
+  }
+  const Dtype* rot = this->rot_blobs_[0]->gpu_data();
+  for (int g = 0; g < group_; ++g) {
+    caffe_gpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, conv_out_channels_ /
+        group_, conv_out_spatial_dim_, kernel_dim_,
+        (Dtype)1., rot + weight_offset_ * g,
+        col_buff + col_offset_ * g,
+        (Dtype)0, output + output_offset_ * g);
+  }
+
+/*
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      std::cout << this->rot_blobs_[0]->cpu_data()[i*3 + j] << " ";
+    }
+    std::cout << std::endl;
+  }
+*/
+  // Rotate the filter for group_ directions
+//  for (int n = 0; n < group_; ++n) {
+/*
+    rot_weights_gpu(this->rot_blobs_[0]->mutable_gpu_data(), this->blobs_[0]->gpu_data(),
+        n, group_, false, this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3, false);
+*/
 /*
     rot_weights(this->rot_blobs_[0]->mutable_cpu_data(), this->blobs_[0]->cpu_data(),
         this->blobs_[0]->shape(), n, false);
-*/
     const Dtype* rot = this->rot_blobs_[0]->gpu_data();
     for (int g = 0; g < group_; ++g) {
       caffe_gpu_gemm<Dtype>(CblasNoTrans, CblasNoTrans, conv_out_channels_ /
           group_, conv_out_spatial_dim_, kernel_dim_,
-          (Dtype)1., rot + weight_offset_ * rot_index((g - n), group_),
+          (Dtype)1., rot + weight_offset_ * g,
           col_buff + col_offset_ * (channels_ == 3 || channels_ == 1? 0 : g),
-          (Dtype)(g==0 ? 0. : 1.), output + output_offset_ * n);
+          (Dtype)0, output + output_offset_ * g);
     }
-  }
+
+*/
+//  }
 }
 
 template <typename Dtype>
@@ -600,12 +642,31 @@ void OrientedConvolutionLayer<Dtype>::backward_gpu_gemm(const Dtype* output,
   if (is_1x1_) {
     col_buff = input;
   }
-  for (int g = 0; g < group_; ++g) {
-    caffe_gpu_gemm<Dtype>(CblasTrans, CblasNoTrans, kernel_dim_,
-        conv_out_spatial_dim_, conv_out_channels_ / group_,
-        (Dtype)1., weights + weight_offset_ * g, output + output_offset_ * g,
-        (Dtype)0., col_buff + col_offset_ * g);
+//  const Dtype* rot = this->rot_blobs_[0]->gpu_data();
+/*
+  for (int n = 0; n < 1; ++n) {
+    rot_weights_gpu(this->rot_blobs_[0]->mutable_gpu_data(), weights, n, group_, false, 
+        this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3, true);
+
+    const Dtype* rot = this->rot_blobs_[0]->gpu_data();
+    for (int g = 0; g < group_; ++g) {
+
+      caffe_gpu_gemm<Dtype>(CblasTrans, CblasNoTrans, kernel_dim_,
+          conv_out_spatial_dim_, conv_out_channels_ / group_,
+          (Dtype)1., rot + weight_offset_ * g, output + output_offset_ * n,
+          (Dtype)(n ? 1. : 0.), col_buff + col_offset_ * g);
+    }
   }
+*/
+    const Dtype* rot = this->rot_blobs_[0]->gpu_data();
+    for (int g = 0; g < group_; ++g) {
+
+      caffe_gpu_gemm<Dtype>(CblasTrans, CblasNoTrans, kernel_dim_,
+          conv_out_spatial_dim_, conv_out_channels_ / group_,
+          (Dtype)1., rot + weight_offset_ * g, output + output_offset_ * g,
+          (Dtype)0., col_buff + col_offset_ * g);
+    }
+
   if (!is_1x1_) {
     conv_col2im_gpu(col_buff, input);
   }
@@ -620,22 +681,39 @@ void OrientedConvolutionLayer<Dtype>::weight_gpu_gemm(const Dtype* input,
     col_buff = col_buffer_.gpu_data();
   }
   // Align delta to standard F
-  for (int n = 0; n < group_; ++n) {
-    Dtype* rot_diff = this->rot_blobs_[0]->mutable_gpu_diff();
+//  for (int n = 0; n < group_; ++n) {
+//    Dtype* rot_diff = this->rot_blobs_[0]->mutable_gpu_diff();
     // Compute for each direction channel
+
     for (int g = 0; g < group_; ++g) {
       caffe_gpu_gemm<Dtype>(CblasNoTrans, CblasTrans, conv_out_channels_ / group_,
           kernel_dim_, conv_out_spatial_dim_,
-          (Dtype)1., output + output_offset_ * n, col_buff + col_offset_ * g,
-          (Dtype)0., rot_diff + weight_offset_ * rot_index((g + n), group_));
+          (Dtype)1., output + output_offset_ * g,
+          col_buff + col_offset_ * g,
+          (Dtype)1., weights + weight_offset_ * g);
     }
+
+/*
+  for (int n = 0; n < 1; ++n) {
+    for (int g = 0; g < group_; ++g) {
+      caffe_gpu_gemm<Dtype>(CblasNoTrans, CblasTrans, conv_out_channels_ / group_,
+          kernel_dim_, conv_out_spatial_dim_,
+          (Dtype)1., output + output_offset_ * g,
+          col_buff + col_offset_ * rot_index((g+n)*2, group_),
+          (Dtype)(n ? 1 : 1), weights + weight_offset_ * g);
+    }
+  }
+*/
 /*
     weights = this->blobs_[0]->mutable_cpu_diff();
     rot_weights(weights, this->rot_blobs_[0]->cpu_diff(), this->blobs_[0]->shape(), -n, true);
   this->blobs_[0]->gpu_diff();
-*/
-    rot_weights_gpu(weights, rot_diff, -n, group_, true, this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3);
+  for (int n = 0; n < group_; ++n) {
+    rot_weights_gpu(weights, rot_diff, -n, group_, true, this->blobs_[0]->shape()[0], this->blobs_[0]->shape()[1], 3, true);
   }
+
+*/
+//  }
 }
 
 template <typename Dtype>
